@@ -1,22 +1,23 @@
 # DecoderTCR (V0.3)
 
 **DecoderTCR** is a masked protein language model for TCR-pMHC interactions, built on
-compositional continual pre-training
-([DecoderTCR: Compositional Pretraining and Entropy-Guided Decoding for TCR-pMHC Interactions](https://www.biorxiv.org/content/10.64898/2026.02.04.703820v1)).
+compositional continual pre-training.  DecoderTCR for prediction and design is introduced in:
+([DecoderTCR: Compositional Pretraining and Entropy-Guided Decoding for TCR-pMHC Interactions](
+https://openreview.net/pdf?id=yzes8qBM70)).
 
 
 ![DecoderTCR: compositional continual pre-training of a protein language model for TCR-pMHC](docs/overview.png)
 
 ## What's new in V0.3
 
-- **New V0.3 models on the ESMC backbone and an updated masking strategy.** DecoderTCR-ESMC at 300M, 600M, and 6B.
+- **New V0.3 models on the ESMC backbone and an updated masking strategy.** DecoderTCR-ESMC models at 300M, 600M, and 6B parameters.
   `DecoderTCR-ESMC_600M` is the default model and runs on common GPUs (≤24 GB). 300M is lighter, and 6B
   is a larger variant for 80 GB GPUs (see the note below).
 - **A comprehensive evaluation across different TCR recognition tasks.** Four benchmarks
   spanning seen and novel TCRs, scored by both per-epitope AUROC and retrieval (recall@K /
   AUPRC): TCRvdb, IMMREP23, Viral (ePytope-TCR), and PRP (a HLA-B\*27:05 peptide-library
   screen). Figures are under [`results/`](results/).
-- **VDJ-based input support.** A convenient input format for high-throughput screening.
+- **VDJ-based input wrapper support.** A convenient input format for high-throughput screening.
 - **Python API support** (`dt.score_from_components`, `dt.embed`) alongside the CLIs.
 
 ## Models
@@ -33,9 +34,9 @@ Select a model with `-m <name>` (or `model=` in the API). Omitting it uses the d
 `DecoderTCR-ESMC_600M`. Weights are fetched by
 [`scripts/download_weights.py`](scripts/download_weights.py), see [Checkpoints](#checkpoints).
 
-> **On `DecoderTCR-ESMC_6B`.** The 6B is a larger variant for 80 GB GPUs, not the recommended
-> default. On the AUROC benchmarks it matches 600M. Its one edge is the PRP retrieval screen,
-> where it prioritizes a TCR's true binders a little better (higher recall@K and AUPRC, see
+> **On `DecoderTCR-ESMC_6B`.** The 6B model is a larger variant for 80 GB GPUs, and is not the recommended
+> default. On most AUROC benchmarks it matches 600M. For antigen recognition in the PRP retrieval screen,
+> where we seek to identify a TCR's true peptide binders, 6B performs better (higher recall@K and AUPRC, see
 > [Results](#results)). For everyday use, 600M is the recommended default.
 
 > **Licensing.** The DecoderTCR code and all released weights are MIT-licensed. The bundled
@@ -54,7 +55,7 @@ Stitchr is installed by default. ESM2 imports as `esm`, ESMC as `esmc`.
 
 ## Usage
 
-Input format: **V/J genes + CDR3 + HLA allele + peptide**:
+Input format: **V/J genes + CDR3s + HLA allele + peptide**:
 
 ### Python API
 
@@ -71,7 +72,7 @@ result = dt.score_from_components(
 print(result["pll_DecoderTCR-ESMC_600M"].iloc[0])
 ```
 
-A batch (a list of dicts, or a CSV / DataFrame):
+Batch mode (a list of dicts, or a CSV / DataFrame):
 
 ```python
 import DecoderTCR as dt
@@ -94,7 +95,7 @@ python -m DecoderTCR.utils.predict_from_genes \
     --hla 'HLA-B*27:05' --peptide LRVMMLAPF -d cuda:0
 ```
 
-A batch (a CSV in, a scored CSV out):
+Batch mode (a CSV in, a scored CSV out):
 
 ```bash
 python -m DecoderTCR.utils.predict_from_genes -i pairs.csv -o scored.csv -d cuda:0
@@ -114,7 +115,7 @@ alleles with `dt.list_alleles()`. Sample input:
 
 ### Running on CPU
 
-Scoring and embedding run on CPU. Pass `device="cpu"` (API) or `-d cpu` (CLI). The CLIs
+For scoring or an embedding run on CPU, pass `device="cpu"` (API) or `-d cpu` (CLI). The CLIs
 default to CPU when no GPU is present. Weights load in fp32 on CPU and scores match GPU.
 
 ```python
@@ -126,8 +127,8 @@ python -m DecoderTCR.utils.predict_from_genes -i pairs.csv -o scored.csv \
     -m DecoderTCR-ESMC_300M -d cpu
 ```
 
-Set `OMP_NUM_THREADS` to the core count. Smaller models are much faster on CPU. The 6B is
-impractical on CPU, so use a GPU.
+Set `OMP_NUM_THREADS` to the core count. The smaller models are much faster on CPU. The 6B is
+impractical on CPU, so use a GPU for the 6B model.
 
 ### Embeddings
 
@@ -153,9 +154,7 @@ Figures and the per-benchmark index are in [`results/`](results/).
 
 ### At a glance
 
-Across the three balanced benchmarks DecoderTCR-ESMC leads the field by macro AUROC (one marker
-per method per benchmark, with an ESMC scaling panel at right). PRP is reported on its own
-below, where at ~0.4% prevalence AUROC is uninformative.
+Across three diverse benchmarks, DecoderTCR-ESMC performs strongly in macro AUROC (shown as one marker per method per benchmark, with an ESMC scaling panel on the right). The PRP benchmark is detailed separately below.
 
 ![Cross-benchmark summary](results/figures/summary_dotplot_scaling.png)
 
@@ -163,14 +162,9 @@ below, where at ~0.4% prevalence AUROC is uninformative.
 
 ### TCRvdb: recognition on known TCRs
 
-TCRvdb ([Messemaker et al., bioRxiv 2025](https://doi.org/10.1101/2025.04.28.651095), citation
-required by the dataset) is a functionally validated TCR-pMHC database from the Schumacher lab.
-Scoring two well-characterized epitopes (YLQ, GLC) by masked-peptide likelihood alone, with no
-binding labels supplied, the model cleanly ranks true binders above decoys (per-epitope ROC:
-fine-tuned models solid, untrained backbones dashed, third-party tools dotted). The pretraining
-objective by itself therefore encodes TCR-pMHC specificity. As these TCRs are seen in training,
-this is a recognition check rather than a generalization test, and the one setting where larger
-models do not help, since they begin to memorize.
+TCRvdb ([Messemaker et al., bioRxiv 2025](https://doi.org/10.1101/2025.04.28.651095)) is a functionally validated TCR-pMHC database. We scored two well-characterized epitopes (YLQ, GLC) by masked-peptide likelihood alone, without supplying binding labels.
+
+The model consistently ranks true binders above decoys (per-epitope ROC: fine-tuned models are solid lines, untrained backbones are dashed, third-party tools are dotted). This suggests the pretraining objective effectively captures TCR-pMHC specificity. Because these TCRs were present in the training data, this serves as a recognition check rather than a generalization test. This is also the one setting where scaling to larger models does not yield improvements, as larger networks can begin to memorize the training data and saturate learning early.
 
 ![TCRvdb ROC](results/figures/tcrvdb_roc.png)
 
@@ -180,9 +174,7 @@ models do not help, since they begin to memorize.
 
 The IMMREP23 community challenge
 ([Nielsen et al., *ImmunoInformatics* 2024](https://doi.org/10.1016/j.immuno.2024.100045))
-measures generalization to largely unseen TCRs, scored as per-epitope AUROC over 20 epitopes
-against purpose-built specificity tools. DecoderTCR-ESMC ranks among the strongest methods,
-evidence that it generalizes to novel TCRs rather than memorizing those it trained on.
+measures generalization to largely unseen TCRs. Performance is scored as per-epitope AUROC over 20 epitopes against purpose-built specificity tools. DecoderTCR-ESMC demonstrates robust generalization compared to baseline methods when applied zero-shot.
 
 ![IMMREP23](results/figures/immrep23_macro_comparison_with_esmc.png)
 
@@ -191,9 +183,7 @@ evidence that it generalizes to novel TCRs rather than memorizing those it train
 ### Viral epitopes: an independent external benchmark
 
 The ePytope-TCR benchmark ([Drost et al., *Cell Genomics* 2025](https://www.cell.com/cell-genomics/fulltext/S2666-979X(25)00202-2))
-scores roughly twenty published tools on viral-epitope specificity. We did not build it, so
-DecoderTCR-ESMC ranking among the top methods is independent confirmation rather than an artifact
-of our own benchmark design.
+scores roughly twenty published tools on viral-epitope specificity. DecoderTCR-ESMC maintains strong, competitive performance compared to existing tools in this zero-shot evaluation.
 
 ![Viral](results/figures/viral_macro_comparison_with_esmc.png)
 
@@ -202,14 +192,11 @@ of our own benchmark design.
 ### PRP: prioritizing a TCR's antigens
 
 PRP (Peptide Recognition Profiling, [Nat Biotech 2026](https://www.nature.com/articles/s41587-026-03128-x))
-is the deployment setting and our headline result. Sixteen HLA-B\*27:05 TCR clones are each
-screened against an anchor-fixed peptide library, and the task is retrieval: rank the ~891k
-peptides for a given TCR to surface its true binders, only ~0.4% of the library.
+is an antigen discovery task. Here, we apply DecoderTCR to sixteen HLA-B*27:05 TCR clones, each screened against an anchor-fixed peptide library. The objective is retrieval: ranking the ~891k peptides for a given TCR to identify its true binders, which make up only ~0.4% of the library.
 
-At this prevalence AUROC is uninformative (a near-random ranking still scores about 0.68 while
-recovering almost no binders), so we report **macro AUPRC** (chance ~0.004). DecoderTCR-ESMC scores
-**6B 0.391, 600M 0.351, 300M 0.303**, against ≤0.02 for DecoderTCR V0.1, the untrained
-backbones, and every third-party tool.
+Because of this extreme class imbalance, AUROC is uninformative (a near-random ranking still scores ~0.68 while recovering almost no binders), so we report **macro AUPRC** (chance ~0.004). DecoderTCR-ESMC scores
+**macro AUPRC of 0.391 (6B), 0.351 (600M), and 0.303 (300M)**, against ≤0.02 for DecoderTCR V0.1, the untrained
+ESM backbone versions, and every third-party tool.
 
 ![PRP macro AUPRC](results/figures/prp_macro_auprc.png)
 
@@ -218,16 +205,14 @@ backbones, and every third-party tool.
 The operational metric is **recall@K**, the fraction of a TCR's true binders recovered in its
 top-K ranked peptides, which sets how many assays it takes to catch the real hits. DecoderTCR-ESMC
 6B recovers about **62% in the top 500** and **35% in the top 100** (random ~1%), with 600M
-close behind and 300M a step lower, while every baseline tracks the random line.
+close behind and 300M a step lower, while every baseline tracks the random line. 
 
 ![PRP recall@K](results/figures/prp_topk_recall.png)
 
 *Recall@K, the fraction of a TCR's true binders recovered in its top-K ranked peptides, averaged over 16 clones on the full library. Higher and steeper means fewer assays to catch the real hits.*
 
-The pattern holds clone by clone: DecoderTCR-ESMC recovers binders across nearly all clones where
-every baseline sits near zero (seen-in-training •, held-out ○). Surfacing a TCR's true antigens
-from a large library this reliably, with a clear gain from scaling to 6B, is the model's core
-capability for antigen discovery.
+DecoderTCR-ESMC successfully recovers binders across nearly all clones, whereas most baseline methods remain near zero (seen-in-training •, held-out ○). Surfacing a TCR's true antigens from a large library introduces 
+a new benchmark task, with a clear gain from scaling to 6B.
 
 ![PRP per-clonotype recall@100](results/figures/prp_per_clone_recall.png)
 
@@ -235,7 +220,7 @@ capability for antigen discovery.
 
 ## Checkpoints
 
-Weights are not committed. Fetch them from the HuggingFace release into the paths the registry expects with
+Weights are not committed to this repo; please download them from the HuggingFace release into the paths the registry expects with
 [`scripts/download_weights.py`](scripts/download_weights.py):
 
 ```bash
@@ -251,19 +236,21 @@ If you use DecoderTCR, please cite:
 
 > Lai B, Englund M, Bharanikumar R, Nocedal I, Davariashtiyani A, Perera J, Khan AA.
 > DecoderTCR: Compositional Pretraining and Entropy-Guided Decoding for TCR-pMHC Interactions.
-> bioRxiv (2026). https://doi.org/10.64898/2026.02.04.703820
+> ICML (2026). https://openreview.net/pdf?id=yzes8qBM70
 
 ```bibtex
-@article{lai2026decodertcr,
-  title   = {DecoderTCR: Compositional Pretraining and Entropy-Guided Decoding for TCR-pMHC Interactions},
-  author  = {Lai, Boqiao and Englund, Melissa and Bharanikumar, Ramit and Nocedal, Isabel and Davariashtiyani, Ali and Perera, Jason and Khan, Aly A.},
-  journal = {bioRxiv},
-  year    = {2026},
-  doi     = {10.64898/2026.02.04.703820}
+@inproceedings{lai2026decodertcr,
+  title     = {{DecoderTCR}: Compositional Pretraining and Entropy-Guided Decoding for {TCR-pMHC} Interactions},
+  author    = {Ben Lai and Melissa Englund and Ramit Bharanikumar and Isabel Nocedal and Ali Davariashtiyani and Jason Perera and Aly A. Khan},
+  booktitle = {Proceedings of the 43rd International Conference on Machine Learning (ICML 2026)},
+  series    = {Proceedings of Machine Learning Research},
+  year      = {2026},
+  publisher = {PMLR},
+  url       = {https://icml.cc/virtual/2026/poster/60562}
 }
 ```
 
 Benchmark datasets carry their own required citations (see [Results](#results)), notably
 TCRvdb ([Messemaker et al., 2025](https://doi.org/10.1101/2025.04.28.651095)).
 
-See [LICENSE.md](LICENSE.md) for the MIT first-party code and the backbone licenses.
+See [LICENSE.md](LICENSE.md) for the MIT first-party code and the ESM backbone licenses.
