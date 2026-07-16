@@ -180,6 +180,8 @@ measures generalization to largely unseen TCRs. Performance is scored as per-epi
 
 *Macro-average AUROC over the 20 IMMREP23 epitopes, one bar per method, with the ESMC size series highlighted.*
 
+Score this benchmark from the raw CSV with the CLI: see [Score IMMREP23 from the raw CSV](results/README.md#score-immrep23-from-the-raw-csv).
+
 ### Viral epitopes: an independent external benchmark
 
 The ePytope-TCR benchmark ([Drost et al., *Cell Genomics* 2025](https://www.cell.com/cell-genomics/fulltext/S2666-979X(25)00202-2))

@@ -15,10 +15,10 @@ _TCR_KEYS = ("trav", "traj", "cdr3a", "trbv", "trbj", "cdr3b")
 _ALIASES = {
     "trav": ["trav", "tcra_v", "va", "v_alpha"],
     "traj": ["traj", "tcra_j", "ja", "j_alpha"],
-    "cdr3a": ["cdr3a", "tcra_cdr3", "cdr3_a", "cdr3_alpha"],
+    "cdr3a": ["cdr3a_extended", "cdr3a", "tcra_cdr3", "cdr3_a", "cdr3_alpha"],
     "trbv": ["trbv", "tcrb_v", "vb", "v_beta"],
     "trbj": ["trbj", "tcrb_j", "jb", "j_beta"],
-    "cdr3b": ["cdr3b", "tcrb_cdr3", "cdr3_b", "cdr3_beta"],
+    "cdr3b": ["cdr3b_extended", "cdr3b", "tcrb_cdr3", "cdr3_b", "cdr3_beta"],
     "hla": ["hla", "allele", "hla_allele", "mhc"],
     "peptide": ["peptide", "epitope", "pep"],
     "name": ["name", "id", "tcr_name"],
