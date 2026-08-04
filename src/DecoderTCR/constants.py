@@ -26,6 +26,10 @@ SEP_PLACEHOLDER = "."  # Single-char placeholder in sequence string (index 29)
 SEP_IDX = ALPHABET.eos_idx  # 2, replaced with <eos> after tokenization
 VOCAB_SIZE = len(ALPHABET)
 
+# The 20 standard amino acids, alphabetical, with their token ids. Shared by both backbones.
+AA20 = "ACDEFGHIKLMNPQRSTVWY"
+AA20_IDS = [ALPHABET.tok_to_idx[a] for a in AA20]
+
 # ---------------------------------------------------------------------------
 # ESM2 backbone architectures (DecoderTCR)
 # ---------------------------------------------------------------------------
