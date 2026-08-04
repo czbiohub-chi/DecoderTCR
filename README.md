@@ -147,9 +147,7 @@ per_res = dt.embed(df, model="DecoderTCR-ESMC_600M", pool=None)       # list of 
 
 ### Peptide profiles and design
 
-`dt.peptide_profile` masks the whole peptide and returns the per-position amino-acid
-distribution from a single forward pass, plus a per-position `entropy` column. No peptide is
-supplied, only the length to profile.
+`dt.peptide_profile` predicts the peptide profile conditioned on given TCR and HLA context. 
 
 ```python
 import DecoderTCR as dt
@@ -162,10 +160,6 @@ prof = dt.peptide_profile(clone, length=9, from_genes=True, device="cuda:0")
 dt.sequence_logo(prof, save="logo.png")
 ```
 
-For this HLA-B\*27:05 clone the consensus is `LRVMMLAPF`, the epitope it recognizes, with
-arginine at position 2 at 0.98, the canonical B\*27:05 anchor. Omit the TCR chains to profile the
-HLA alone, which here raises the mean per-position entropy from 0.26 to 2.29.
-
 `dt.design_peptides` turns the profile into candidate peptides, scored with the masked-peptide
 PLL that `dt.score` reports and sorted best first.
 
@@ -176,8 +170,7 @@ designs = dt.design_peptides(clone, length=9, n=20, from_genes=True, device="cud
 Each position is drawn from its marginal by default, at one forward pass for any number of
 peptides. `method="iegr"` runs Iterative Entropy-Guided Refinement, which commits the
 lowest-entropy position first and resamples the rest in its context, at one forward pass per
-residue. `temperature=0` returns the consensus peptide alone. `dt.iegr` also designs CDR3 loops
-with `region="cdr3b"`, which takes its length from the template.
+residue. `temperature=0` returns the consensus peptide alone. 
 
 From the command line, profile a 9-mer and write the logo:
 
