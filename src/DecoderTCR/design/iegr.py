@@ -24,6 +24,8 @@ from DecoderTCR.constants import AA20, AA20_IDS, MASK_IDX
 from DecoderTCR.model.tokenizer import TCRpMHCTokenizer
 from DecoderTCR.design.profile import build_masked_entry, region_positions
 
+FORWARD_BUDGET_PER_DESIGN = 20   # default max_forwards per requested design
+
 _AA_IDS = torch.tensor(AA20_IDS, dtype=torch.long)
 _ID_TO_AA = {i: a for i, a in zip(AA20_IDS, AA20)}
 
@@ -95,6 +97,169 @@ def _phase2(model, num_layers, ids, token_idx, temperature, rounds, subset_size,
             out.append((current.clone(),
                         "".join(_ID_TO_AA[int(current[t])] for t in token_idx)))
     return out
+
+
+def _profile_row(logits: torch.Tensor) -> np.ndarray:
+    """Renormalised distribution over the 20 standard residues for one position."""
+    # float64, required by logomaker, matching profile_from_logits.
+    return torch.softmax(logits[_AA_IDS].double(), dim=-1).numpy()
+
+
+def iegr_profile(data, region: str = "peptide", length: int | None = None,
+                 temperature: float = 0.1, seed: int = 42, model=None, *, num_layers=None,
+                 device="cuda", from_genes: bool = False, checkpoint=None, backbone=None,
+                 arch=None) -> pd.DataFrame:
+    """Profile a region by entropy-guided refinement instead of one masked forward pass.
+
+    `peptide_profile` reads every position from a single fully-masked pass, so each row is
+    independent of the others. This walks the region instead: it commits the lowest-entropy
+    position, re-masks the rest, and runs another pass, recording each position's distribution at
+    the moment it is committed. Row `i` is therefore conditioned on every position committed
+    before it, which is what a one-shot profile cannot express.
+
+    Costs one forward pass per residue rather than one in total. `temperature` shapes the residue
+    committed at each step, defaulting to 0.1, near greedy. The returned frame has the same shape
+    as `peptide_profile`, so `sample_from_profile` consumes it unchanged.
+    """
+    from DecoderTCR.api import _resolve_model
+
+    entry = build_masked_entry(data, region=region, length=length, from_genes=from_genes)
+    mdl, n_layers, dev, _, _ = _resolve_model(model, num_layers, device, checkpoint,
+                                              backbone, arch)
+    tok = TCRpMHCTokenizer(entry, mask_probs=None, use_sep=False)
+    token_idx = [int(p) + 1 for p in region_positions(tok, region, entry)]   # +1 for CLS
+    generator = torch.Generator().manual_seed(seed)
+
+    rows: dict[int, np.ndarray] = {}
+    order: list[int] = []
+    chosen: dict[int, int] = {}
+    remaining = list(token_idx)
+
+    while remaining:
+        logits = _forward(mdl, n_layers, _rebuild(tok.original_ids, chosen, remaining), dev)
+        sel = torch.tensor(remaining, dtype=torch.long)
+        t = remaining[int(_entropy(logits[sel]).argmin())]       # commit the most confident
+        rows[t] = _profile_row(logits[t])
+        order.append(t)
+        chosen[t] = _sample(logits[t], temperature, generator)
+        remaining.remove(t)
+
+    probs = np.stack([rows[t] for t in token_idx])
+    prof = pd.DataFrame(probs, columns=list(AA20))
+    prof.index = pd.RangeIndex(1, len(prof) + 1, name="position")
+    prof["entropy"] = -(probs * np.log(probs + 1e-12)).sum(axis=1)
+    # Rank at which each position was committed, 1 = most confident. Diagnostic only.
+    prof["commit_order"] = [order.index(t) + 1 for t in token_idx]
+    return prof
+
+
+def block_gibbs(data, peptides, region: str = "peptide", k: int = 5, rounds: int = 1,
+                n: int | None = None, temperature: float = 1.0, seed: int = 42,
+                max_forwards: int | None = None, model=None, *, num_layers=None,
+                device="cuda", from_genes: bool = False, checkpoint=None, backbone=None,
+                arch=None) -> tuple[list[str], dict]:
+    """Refine a peptide library by block Gibbs, re-masking `k` positions at a time.
+
+    One-shot sampling draws every position independently, so it cannot represent dependence
+    between positions. This re-masks a random block of `k` positions in a peptide and resamples
+    them together from one forward pass. Positions inside a block are still drawn independently of
+    each other, but they are drawn in the context of the positions left standing.
+
+    Two modes. Without `n`, each input peptide is walked for exactly `rounds` blocks and only its
+    final state is kept, so refined peptides that collide reduce the library. With `n`, the walks
+    run round robin and every distinct state they visit is kept, until `n` distinct peptides are
+    collected or `max_forwards` passes are spent. Use `n` to hold the library size fixed rather
+    than watching it shrink.
+
+    `max_forwards` defaults to `rounds * len(peptides)` without `n`, which is exact, and to
+    `FORWARD_BUDGET_PER_DESIGN * n` with it. Needs the model, so unlike `sample_from_profile` it is
+    not free, and its forward passes dominate every other cost in a run that uses it.
+
+    Consecutive states of one walk differ by at most `k` positions, so they are correlated. A `k`
+    closer to the peptide length decorrelates faster at the cost of keeping less context.
+
+    Returns the peptides alongside `n_input`, `n_returned`, `n_forwards`, `n_changed` and
+    `budget_exhausted`, which says the walk stopped on `max_forwards` rather than reaching `n`.
+    """
+    from DecoderTCR.api import _resolve_model
+
+    if not peptides:
+        return [], {"n_input": 0, "n_returned": 0, "n_forwards": 0, "n_changed": 0}
+    if k < 1:
+        raise ValueError(f"`k` must be at least 1, got {k}")
+    if rounds < 1:
+        raise ValueError(f"`rounds` must be at least 1, got {rounds}")
+    if n is not None and n < 1:
+        raise ValueError(f"`n` must be at least 1, got {n}")
+    if max_forwards is not None and max_forwards < 1:
+        raise ValueError(f"`max_forwards` must be at least 1, got {max_forwards}")
+
+    length = len(peptides[0])
+    if any(len(s) != length for s in peptides):
+        raise ValueError("every peptide must have the same length")
+
+    entry = build_masked_entry(data, region=region, length=length, from_genes=from_genes)
+    mdl, n_layers, dev, _, _ = _resolve_model(model, num_layers, device, checkpoint,
+                                              backbone, arch)
+    tok = TCRpMHCTokenizer(entry, mask_probs=None, use_sep=False)
+    token_idx = [int(q) + 1 for q in region_positions(tok, region, entry)]   # +1 for CLS
+    if len(token_idx) != length:
+        raise ValueError(f"peptides are length {length} but the region holds {len(token_idx)}")
+
+    aa_to_id = {a: i for a, i in zip(AA20, AA20_IDS)}
+    generator = torch.Generator().manual_seed(seed)
+    rng = np.random.default_rng(seed)
+    block = min(k, length)
+    idx_array = np.asarray(token_idx)
+
+    budget = max_forwards if max_forwards is not None else (
+        rounds * len(peptides) if n is None else FORWARD_BUDGET_PER_DESIGN * n)
+
+    # One chain per input peptide, advanced in place so each walk keeps its own history.
+    chains = []
+    for pep in peptides:
+        ids = tok.original_ids.clone()
+        for t, a in zip(token_idx, pep):
+            ids[t] = aa_to_id[a]
+        chains.append(ids)
+
+    def step(ids):
+        """Re-mask one random block and resample it, returning the peptide that results."""
+        subset = [int(q) for q in rng.choice(idx_array, size=block, replace=False)]
+        logits = _forward(mdl, n_layers, _rebuild(ids, {}, subset), dev)
+        for q in subset:
+            ids[q] = _sample(logits[q], temperature, generator)
+        return "".join(_ID_TO_AA[int(ids[t])] for t in token_idx)
+
+    seen, out, forwards, changed = set(), [], 0, 0
+    if n is None:
+        for ids, pep in zip(chains, peptides):
+            refined = pep
+            for _ in range(rounds):
+                if forwards >= budget:
+                    break
+                refined = step(ids)
+                forwards += 1
+            changed += refined != pep
+            if refined not in seen:
+                seen.add(refined)
+                out.append(refined)
+    else:
+        # Round robin, so no single seed dominates the library when one chain mixes faster.
+        origin = list(peptides)
+        i = 0
+        while len(out) < n and forwards < budget:
+            refined = step(chains[i % len(chains)])
+            forwards += 1
+            changed += refined != origin[i % len(chains)]
+            if refined not in seen:
+                seen.add(refined)
+                out.append(refined)
+            i += 1
+
+    return out, {"n_input": len(peptides), "n_returned": len(out),
+                 "n_forwards": forwards, "n_changed": changed,
+                 "budget_exhausted": bool(n is not None and len(out) < n)}
 
 
 def iegr(data, region: str = "peptide", length: int | None = None, n: int = 10,

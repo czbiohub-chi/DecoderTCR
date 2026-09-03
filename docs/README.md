@@ -9,3 +9,7 @@
 - **B.** Iterative Entropy-Guided Refinement for CDR3 design: from all-masked initialization,
   resolve the high-confidence (low-entropy) anchor residues first, then refine the flexible
   center to the final CDR3.
+
+[`peptide_design.md`](peptide_design.md) documents the peptide design API: the split
+between profiling and sampling, the sampling knobs, saturation reporting, IEGR and the command
+line. The main [README](../README.md) links to it from the usage section.

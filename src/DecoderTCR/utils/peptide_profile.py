@@ -95,26 +95,36 @@ def main():
     if args.checkpoint and not (args.backbone and args.arch):
         raise SystemExit("--checkpoint requires --backbone and --arch")
 
-    from DecoderTCR.design import design_peptides, peptide_profile, sequence_logo
+    from DecoderTCR.design import (build_masked_entry, design_peptides, peptide_profile,
+                                   sequence_logo)
 
     rows = _rows(args)
-    common = dict(model=args.model, device=args.device, from_genes=True,
+    common = dict(model=args.model, device=args.device,
                   checkpoint=args.checkpoint, backbone=args.backbone, arch=args.arch)
     frames = []
     for i, row in enumerate(rows):
         name = row.get("name", f"complex_{i}")
+        # Stitch the chains once. Both calls below take full sequences, so this reconstructs a row
+        # a single time instead of once per call.
+        seqs = build_masked_entry(row, region="peptide", length=args.length,
+                                  from_genes=True)["sequences"]
         if args.design:
-            out = design_peptides(row, length=args.length, n=args.design, method=args.method,
+            out = design_peptides(seqs, length=args.length, n=args.design, method=args.method,
                                   temperature=args.temperature, seed=args.seed,
                                   rescore=not args.no_rescore, gibbs_rounds=args.gibbs_rounds,
                                   gibbs_subset_size=args.gibbs_subset_size, **common)
+            # A peaked profile can run out of distinct peptides. Say so, because pd.concat below
+            # drops .attrs and the short result would otherwise be silent.
+            if out.attrs.get("saturated"):
+                print(f"{name}: profile supplied only {len(out)} distinct peptides of the "
+                      f"{args.design} requested, after {out.attrs.get('n_draws_used', 0)} draws")
         else:
-            out = peptide_profile(row, length=args.length, **common).reset_index()
+            out = peptide_profile(seqs, length=args.length, **common).reset_index()
         out.insert(0, "name", name)
         frames.append(out)
 
         if args.logo_out:
-            prof = (peptide_profile(row, length=args.length, **common)
+            prof = (peptide_profile(seqs, length=args.length, **common)
                     if args.design else out.set_index("position").drop(columns="name"))
             path = (args.logo_out if len(rows) == 1
                     else args.logo_out.with_name(f"{args.logo_out.stem}_{name}{args.logo_out.suffix}"))

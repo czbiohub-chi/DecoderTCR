@@ -32,12 +32,16 @@ Lower-level loader + scorer (what the above wraps):
 __version__ = "0.3.0"
 
 from DecoderTCR.api import score, score_one, embed
-from DecoderTCR.design import (design_peptides, iegr, peptide_profile, region_profile,
-                               sequence_logo)
+from DecoderTCR.design import (block_gibbs, consensus, design_peptides, iegr,
+                               iegr_profile,
+                               peptide_profile, region_profile,
+                               sample_from_profile, sequence_logo)
 from DecoderTCR.reconstruct import score_from_components, list_alleles
 from DecoderTCR.utils.model_zoo import load
 from DecoderTCR.utils.scoring import run_pll_benchmark
 
 __all__ = ["score_from_components", "list_alleles", "score", "score_one", "embed",
-           "peptide_profile", "region_profile", "sequence_logo", "design_peptides", "iegr",
+           "peptide_profile", "region_profile", "sequence_logo", "sample_from_profile",
+           "consensus",
+           "design_peptides", "iegr", "iegr_profile", "block_gibbs",
            "load", "run_pll_benchmark", "__version__"]

@@ -113,6 +113,11 @@ alleles with `dt.list_alleles()`. Sample input:
 [`Demo/sample_data/genes_pairs.csv`](Demo/sample_data/genes_pairs.csv). Walkthrough:
 [`Demo/quick_start.ipynb`](Demo/quick_start.ipynb).
 
+`python -m DecoderTCR.utils.peptide_profile` takes the same gene input and writes a peptide
+profile and logo instead of a score. It reconstructs each row first, so it is the gene-input
+route to a profile. Peptide design itself takes full sequences, documented in
+[docs/peptide_design.md](docs/peptide_design.md).
+
 ### Running on CPU
 
 For scoring or an embedding run on CPU, pass `device="cpu"` (API) or `-d cpu` (CLI). The CLIs
@@ -147,48 +152,21 @@ per_res = dt.embed(df, model="DecoderTCR-ESMC_600M", pool=None)       # list of 
 
 ### Peptide profiles and design
 
-`dt.peptide_profile` masks the whole peptide and returns the per-position amino-acid
-distribution from a single forward pass, plus a per-position `entropy` column. No peptide is
-supplied, only the length to profile.
+`dt.peptide_profile` returns the per-position amino-acid distribution for a peptide of a given
+length, conditioned on the TCR and HLA. `dt.sample_from_profile` turns that profile into a peptide
+library without touching the model again, and `dt.design_peptides` chains both and scores the
+result.
 
 ```python
-import DecoderTCR as dt
+pair = pd.read_csv("Demo/sample_data/sequence_pairs.csv").iloc[0]
+seqs = {k: pair[k] for k in ("HLA_a", "HLA_b", "TCR_a", "TCR_b")}
 
-clone = {"trav": "TRAV21", "traj": "TRAJ6", "cdr3a": "CAVRPGGAGPFFVVF",
-         "trbv": "TRBV7-9", "trbj": "TRBJ2-7", "cdr3b": "CASSLGQAYEQYF",
-         "hla": "HLA-B*27:05"}
-
-prof = dt.peptide_profile(clone, length=9, from_genes=True, device="cuda:0")
-dt.sequence_logo(prof, save="logo.png")
+prof = dt.peptide_profile(seqs, length=9, device="cuda:0")
+peptides, stats = dt.sample_from_profile(prof, n=1000, temperature=1.2)
 ```
 
-For this HLA-B\*27:05 clone the consensus is `LRVMMLAPF`, the epitope it recognizes, with
-arginine at position 2 at 0.98, the canonical B\*27:05 anchor. Omit the TCR chains to profile the
-HLA alone, which here raises the mean per-position entropy from 0.26 to 2.29.
-
-`dt.design_peptides` turns the profile into candidate peptides, scored with the masked-peptide
-PLL that `dt.score` reports and sorted best first.
-
-```python
-designs = dt.design_peptides(clone, length=9, n=20, from_genes=True, device="cuda:0")
-```
-
-Each position is drawn from its marginal by default, at one forward pass for any number of
-peptides. `method="iegr"` runs Iterative Entropy-Guided Refinement, which commits the
-lowest-entropy position first and resamples the rest in its context, at one forward pass per
-residue. `temperature=0` returns the consensus peptide alone. `dt.iegr` also designs CDR3 loops
-with `region="cdr3b"`, which takes its length from the template.
-
-From the command line, profile a 9-mer and write the logo:
-
-```bash
-python -m DecoderTCR.utils.peptide_profile \
-    --trav TRAV21 --traj TRAJ6 --cdr3a CAVRPGGAGPFFVVF \
-    --trbv TRBV7-9 --trbj TRBJ2-7 --cdr3b CASSLGQAYEQYF \
-    --hla 'HLA-B*27:05' --length 9 -o profile.csv --logo-out logo.png -d cuda:0
-```
-
-Add `--design 20` to generate peptides, and `--method iegr` to use the iterative decoder.
+See [docs/peptide_design.md](docs/peptide_design.md) for the input format, the sampling knobs,
+saturation reporting, IEGR and the command line.
 
 ## Results
 

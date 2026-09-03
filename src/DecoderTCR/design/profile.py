@@ -3,7 +3,7 @@
     import DecoderTCR as dt
 
     prof = dt.peptide_profile({"HLA_a": HLA, "TCR_a": TCR_A, "TCR_b": TCR_B}, length=9)
-    print("".join(prof[list(AA20)].idxmax(axis=1)))   # consensus peptide
+    print(dt.consensus(prof))                         # consensus peptide
     dt.sequence_logo(prof)
 
 Masks the whole target region and runs the model once, returning the marginal distribution at
@@ -31,6 +31,15 @@ _SEQ_ALIASES = {
     "TCR_a": ["tcr_a", "tcra", "tcr_alpha"],
     "TCR_b": ["tcr_b", "tcrb", "tcr_beta"],
 }
+
+
+def _keys_of(data) -> list:
+    """Field names of a dict, Series, or one-row DataFrame, for error messages."""
+    if isinstance(data, pd.DataFrame):
+        return list(data.columns)
+    if isinstance(data, pd.Series):
+        return list(data.index)
+    return list(data) if isinstance(data, dict) else []
 
 
 def _norm_sequences(data) -> dict[str, str]:
@@ -99,8 +108,25 @@ def build_masked_entry(data, region: str = "peptide", length: int | None = None,
     if not seqs["Peptide"]:
         raise ValueError("the entry has no peptide. Pass `length` to profile the peptide, or "
                          "supply a Peptide when profiling a CDR3 region.")
+    # Diagnose V/J gene input before anything else, since it is the migration a user makes now
+    # that design no longer takes from_genes.
+    gene_like = [k for k in ("trav", "traj", "cdr3a", "trbv", "trbj", "cdr3b")
+                 if k in {str(x).lower() for x in _keys_of(data)}]
+    if gene_like:
+        raise ValueError(
+            f"this looks like V/J gene input (found {gene_like}), which design does not take. "
+            f"Stitch the chains first with DecoderTCR.reconstruct.reconstruct_components, then "
+            f"pass HLA_a, HLA_b, TCR_a and TCR_b.")
     if not (seqs["HLA_a"] or seqs["TCR_a"] or seqs["TCR_b"]):
         raise ValueError("nothing to condition on. Supply at least an HLA_a or a TCR chain.")
+    # Catch an allele name or a gene symbol sitting in a sequence field here, with the field
+    # named, rather than as a KeyError out of the vendored alphabet.
+    for name, seq in seqs.items():
+        bad = sorted(set(seq) - set(AA20))
+        if bad:
+            raise ValueError(f"{name} is not an amino-acid sequence: it contains {bad}. "
+                             f"Design takes full sequences, so pass the stitched chain rather "
+                             f"than an allele name or a gene symbol.")
     return {"sequences": seqs, "pocket_idx": {}, "meta_data": {}}
 
 

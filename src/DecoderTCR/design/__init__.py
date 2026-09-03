@@ -6,17 +6,21 @@
     prof = dt.peptide_profile({"HLA_a": HLA, "TCR_a": TCR_A, "TCR_b": TCR_B}, length=9)
     dt.sequence_logo(prof, save="logo.png")
 
-    # candidate peptides, sampled from that profile
+    # sample a peptide library from that profile: no model, no GPU
+    peptides, stats = dt.sample_from_profile(prof, n=1000, temperature=1.2)
+
+    # or profile and sample in one call
     designs = dt.design_peptides({"HLA_a": HLA, "TCR_a": TCR_A, "TCR_b": TCR_B}, length=9)
 
     # or with the paper's iterative entropy-guided decoding
     designs = dt.design_peptides({...}, length=9, method="iegr")
 """
 
-from DecoderTCR.design.profile import (build_masked_entry, consensus, peptide_profile,
+from DecoderTCR.design.profile import (build_masked_entry, consensus, consensus, peptide_profile,
                                        region_profile, sequence_logo)
-from DecoderTCR.design.generate import design_peptides
-from DecoderTCR.design.iegr import iegr
+from DecoderTCR.design.generate import design_peptides, sample_from_profile
+from DecoderTCR.design.iegr import block_gibbs, iegr, iegr_profile
 
 __all__ = ["peptide_profile", "region_profile", "sequence_logo", "consensus",
-           "design_peptides", "iegr", "build_masked_entry"]
+           "sample_from_profile", "design_peptides", "iegr", "iegr_profile",
+           "block_gibbs", "build_masked_entry"]
